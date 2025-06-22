@@ -26,3 +26,8 @@ done
 cp -p .bashrc ${HOME}/.bashrc
 cp -p .gitconfig ${HOME}/.gitconfig
 cp -p .gitignore ${HOME}/.gitignore
+cp -p .tool-versions ${HOME}/.tool-versions
+
+cd $HOME && asdf install
+asdf reshim
+npm install -g @anthropic-ai/claude-code
