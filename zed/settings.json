@@ -1,0 +1,36 @@
+{
+  "languages": {
+    "JSON": {
+      "format_on_save": "off",
+      "tab_size": 2,
+    },
+  },
+  "vim": {
+    "use_system_clipboard": "never",
+  },
+  "base_keymap": "JetBrains",
+  "agent": {
+    "default_model": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-6",
+      "enable_thinking": false,
+    },
+    "model_parameters": [],
+  },
+  "agent_servers": {
+    "claude-acp": {
+      "type": "registry",
+      "env": {
+        "CLAUDE_CODE_EXECUTABLE": "~/.local/bin/claude",
+      },
+    },
+  },
+  "vim_mode": true,
+  "ui_font_size": 16,
+  "buffer_font_size": 16,
+  "theme": {
+    "mode": "system",
+    "light": "One Light",
+    "dark": "Ayu Dark",
+  },
+}
