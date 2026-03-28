@@ -1,0 +1,289 @@
+name: cross-tool-tdd
+description: >
+  クロスツール TDD ワークフロー
+  （Codex 計画 → Codex/Claude 計画レビュー → Cursor TDD 実装 → Claude simplify → Codex/Claude/CodeRabbit 実装レビュー）
+piece_config:
+  provider_options:
+    codex:
+      network_access: true
+    opencode:
+      network_access: true
+max_movements: 30
+initial_movement: plan
+
+# セクションマップ（カスタムファセットのみ）
+instructions:
+  review-plan: ../instructions/review-plan.md
+  implement-tdd: ../instructions/implement-tdd.md
+  simplify: ../instructions/simplify.md
+  review-coderabbit: ../instructions/review-coderabbit.md
+report_formats:
+  plan-review: ../output-contracts/plan-review.md
+  simplify-report: ../output-contracts/simplify-report.md
+  coderabbit-review: ../output-contracts/coderabbit-review.md
+
+loop_monitors:
+  - cycle:
+      - plan_review
+      - plan
+    threshold: 3
+    judge:
+      persona: supervisor
+      instruction_template: |
+        計画と計画レビューのサイクルが {cycle_count} 回繰り返されました。
+
+        計画レポート: {report:plan.md}
+        Codex レビュー: {report:codex-plan-review.md}
+        Claude レビュー: {report:claude-plan-review.md}
+
+        各サイクルで計画が改善されているか、同じ指摘が繰り返されているかを判断してください。
+      rules:
+        - condition: 健全（計画が改善されている）
+          next: plan_review
+        - condition: 非生産的（同じ指摘が繰り返される）
+          next: ABORT
+  - cycle:
+      - impl_review
+      - implement
+      - simplify
+    threshold: 2
+    judge:
+      persona: supervisor
+      instruction_template: |
+        実装→簡素化→実装レビューのサイクルが {cycle_count} 回繰り返されました。
+
+        Codex レビュー: {report:codex-impl-review.md}
+        Claude レビュー: {report:claude-impl-review.md}
+        CodeRabbit レビュー: {report:coderabbit-review.md}
+
+        実装が改善されているか、同じ問題が繰り返されているかを判断してください。
+      rules:
+        - condition: 健全（実装が改善されている）
+          next: impl_review
+        - condition: 非生産的（同じ問題が繰り返される）
+          next: ABORT
+
+movements:
+  # Step 1: Codex で計画
+  - name: plan
+    edit: false
+    persona: planner
+    knowledge: architecture
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Bash
+          - WebSearch
+          - WebFetch
+    instruction: plan
+    output_contracts:
+      report:
+        - name: plan.md
+          format: plan
+    rules:
+      - condition: 要件が明確で実装可能
+        next: plan_review
+      - condition: ユーザーが質問をしている（実装タスクではない）
+        next: COMPLETE
+      - condition: 要件が不明確、情報不足
+        next: ABORT
+        appendix: |
+          確認事項:
+          - {質問1}
+          - {質問2}
+
+  # Step 2: Codex / Claude で計画レビュー（並列）
+  - name: plan_review
+    parallel:
+      - name: codex-plan-review
+        edit: false
+        persona: architecture-reviewer
+        policy: review
+        knowledge: architecture
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-plan
+        output_contracts:
+          report:
+            - name: codex-plan-review.md
+              format: plan-review
+        rules:
+          - condition: approved
+          - condition: needs_revision
+      - name: claude-plan-review
+        edit: false
+        persona: architecture-reviewer
+        policy: review
+        knowledge: architecture
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-plan
+        output_contracts:
+          report:
+            - name: claude-plan-review.md
+              format: plan-review
+        rules:
+          - condition: approved
+          - condition: needs_revision
+    rules:
+      - condition: all("approved")
+        next: implement
+      - condition: any("needs_revision")
+        next: plan
+
+  # Step 4: Cursor Composer2 Fast で TDD 実装（t-wada スタイル）
+  - name: implement
+    edit: true
+    persona: coder
+    policy:
+      - coding
+      - testing
+    session: refresh
+    knowledge:
+      - architecture
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+          - WebSearch
+          - WebFetch
+    required_permission_mode: edit
+    instruction: implement-tdd
+    output_contracts:
+      report:
+        - name: coder-scope.md
+          format: coder-scope
+        - name: coder-decisions.md
+          format: coder-decisions
+    rules:
+      - condition: TDD 実装完了（Red→Green→Refactor サイクル完了）
+        next: simplify
+      - condition: 実装を進行できない
+        next: ABORT
+      - condition: ユーザー入力が必要
+        next: implement
+        requires_user_input: true
+        interactive_only: true
+
+  # Step 5: Claude /simplify
+  - name: simplify
+    edit: true
+    persona: coder
+    policy:
+      - coding
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+    required_permission_mode: edit
+    instruction: simplify
+    output_contracts:
+      report:
+        - name: simplify-report.md
+          format: simplify-report
+    rules:
+      - condition: 簡素化完了（改善あり）
+        next: impl_review
+      - condition: 変更不要（コードは既に十分簡素）
+        next: impl_review
+
+  # Step 6: Codex / Claude / CodeRabbit で実装レビュー（並列）
+  - name: impl_review
+    parallel:
+      - name: codex-impl-review
+        edit: false
+        persona: architecture-reviewer
+        policy: review
+        knowledge: architecture
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-arch
+        output_contracts:
+          report:
+            - name: codex-impl-review.md
+              format: architecture-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+      - name: claude-impl-review
+        edit: false
+        persona: architecture-reviewer
+        policy: review
+        knowledge: architecture
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-arch
+        output_contracts:
+          report:
+            - name: claude-impl-review.md
+              format: architecture-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+      - name: coderabbit-review
+        edit: false
+        persona: architecture-reviewer
+        policy: review
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-coderabbit
+        output_contracts:
+          report:
+            - name: coderabbit-review.md
+              format: coderabbit-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+    rules:
+      - condition: all("approved")
+        next: COMPLETE
+      - condition: any("needs_fix")
+        next: implement
