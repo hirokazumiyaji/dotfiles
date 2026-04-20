@@ -4,6 +4,7 @@ path=(
   "$HOME/.local/share/mise/shims"
   /opt/homebrew/bin
   /opt/homebrew/sbin
+  "$HOME/.moon/bin"
   "$HOME/src/google-cloud-sdk/bin"
   "$HOME/.pub-cache/bin"
   "$HOME/.local/bin"
