@@ -1,0 +1,249 @@
+name: codex-claude-cursor
+description: >
+  Codex が計画し、Claude Code と Cursor が順に計画レビューを通す。
+  Cursor が実装し、Codex と Claude Code が指摘なしになるまでレビューと修正を繰り返す。
+workflow_config:
+  provider_options:
+    codex:
+      network_access: true
+    claude:
+      sandbox:
+        allow_unsandboxed_commands: true
+max_steps: 40
+initial_step: codex_plan
+
+instructions:
+  codex-plan: ../instructions/codex-plan.md
+  claude-plan-review: ../instructions/claude-plan-review.md
+  cursor-plan-review: ../instructions/cursor-plan-review.md
+  cursor-implement: ../instructions/cursor-implement.md
+  implementation-review: ../instructions/implementation-review.md
+  claude-implementation-review: ../instructions/claude-implementation-review.md
+  cursor-fix: ../instructions/cursor-fix.md
+
+report_formats:
+  plan: ../output-contracts/plan.md
+  plan-review: ../output-contracts/plan-review.md
+  implementation-report: ../output-contracts/implementation-report.md
+  implementation-review: ../output-contracts/implementation-review.md
+  fix-report: ../output-contracts/fix-report.md
+
+loop_monitors:
+  - cycle:
+      - claude_plan_review
+      - codex_plan
+    threshold: 5
+    judge:
+      persona: supervisor
+      instruction: |
+        Claude Code の計画レビューと Codex の計画修正が {cycle_count} 回繰り返されました。
+        計画とレビューが改善しているか、同じ指摘が残り続けているかを判断してください。
+      rules:
+        - condition: 健全（計画が改善されている）
+          next: claude_plan_review
+        - condition: 非生産的（同じ指摘が繰り返される）
+          next: ABORT
+  - cycle:
+      - cursor_plan_review
+      - codex_plan
+    threshold: 5
+    judge:
+      persona: supervisor
+      instruction: |
+        Cursor の計画レビューと Codex の計画修正が {cycle_count} 回繰り返されました。
+        Cursor の指摘が解消に向かっているか、同じ指摘が残り続けているかを判断してください。
+      rules:
+        - condition: 健全（計画が改善されている）
+          next: cursor_plan_review
+        - condition: 非生産的（同じ指摘が繰り返される）
+          next: ABORT
+  - cycle:
+      - implementation_review
+      - cursor_fix
+    threshold: 5
+    judge:
+      persona: supervisor
+      instruction: |
+        実装レビューと Cursor 修正が {cycle_count} 回繰り返されました。
+        Codex と Claude Code の指摘が解消に向かっているか、同じ指摘が残り続けているかを判断してください。
+      rules:
+        - condition: 健全（実装が改善されている）
+          next: implementation_review
+        - condition: 非生産的（同じ指摘が繰り返される）
+          next: ABORT
+
+steps:
+  - name: codex_plan
+    provider: codex
+    model: gpt-5.5
+    edit: false
+    required_permission_mode: readonly
+    persona: planner
+    knowledge: architecture
+    provider_options:
+      codex:
+        reasoning_effort: xhigh
+    instruction: codex-plan
+    output_contracts:
+      report:
+        - name: plan.md
+          format: plan
+    rules:
+      - condition: 計画作成完了
+        next: claude_plan_review
+      - condition: ユーザー入力が必要
+        next: ABORT
+      - condition: 実装タスクではない
+        next: COMPLETE
+
+  - name: claude_plan_review
+    provider: claude
+    model: claude-opus-4-7
+    edit: false
+    required_permission_mode: readonly
+    persona: architecture-reviewer
+    policy: review
+    knowledge: architecture
+    provider_options:
+      claude:
+        effort: xhigh
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Bash
+          - WebSearch
+          - WebFetch
+    instruction: claude-plan-review
+    output_contracts:
+      report:
+        - name: claude-plan-review.md
+          format: plan-review
+    rules:
+      - condition: approved
+        next: cursor_plan_review
+      - condition: needs_revision
+        next: codex_plan
+
+  - name: cursor_plan_review
+    provider: cursor
+    model: composer-2-fast
+    edit: false
+    required_permission_mode: readonly
+    persona: architecture-reviewer
+    policy: review
+    knowledge: architecture
+    instruction: cursor-plan-review
+    output_contracts:
+      report:
+        - name: cursor-plan-review.md
+          format: plan-review
+    rules:
+      - condition: approved
+        next: cursor_implement
+      - condition: needs_revision
+        next: codex_plan
+
+  - name: cursor_implement
+    provider: cursor
+    model: composer-2-fast
+    edit: true
+    required_permission_mode: edit
+    persona: coder
+    policy:
+      - coding
+      - testing
+    knowledge: architecture
+    session: refresh
+    instruction: cursor-implement
+    output_contracts:
+      report:
+        - name: implementation-report.md
+          format: implementation-report
+    rules:
+      - condition: 実装完了
+        next: implementation_review
+      - condition: 実装を進行できない
+        next: ABORT
+      - condition: ユーザー入力が必要
+        next: cursor_implement
+        requires_user_input: true
+        interactive_only: true
+
+  - name: implementation_review
+    parallel:
+      - name: codex-implementation-review
+        provider: codex
+        model: gpt-5.5
+        edit: false
+        required_permission_mode: readonly
+        persona: architecture-reviewer
+        policy: review
+        knowledge: architecture
+        provider_options:
+          codex:
+            reasoning_effort: xhigh
+        instruction: implementation-review
+        output_contracts:
+          report:
+            - name: codex-implementation-review.md
+              format: implementation-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+      - name: claude-implementation-review
+        provider: claude
+        model: claude-opus-4-7
+        edit: false
+        required_permission_mode: readonly
+        persona: architecture-reviewer
+        policy: review
+        knowledge: architecture
+        provider_options:
+          claude:
+            effort: xhigh
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: claude-implementation-review
+        output_contracts:
+          report:
+            - name: claude-implementation-review.md
+              format: implementation-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+    rules:
+      - condition: all("approved")
+        next: COMPLETE
+      - condition: any("needs_fix")
+        next: cursor_fix
+
+  - name: cursor_fix
+    provider: cursor
+    model: composer-2-fast
+    edit: true
+    required_permission_mode: edit
+    persona: coder
+    policy:
+      - coding
+      - testing
+    knowledge: architecture
+    session: refresh
+    instruction: cursor-fix
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: fix-report.md
+          format: fix-report
+    rules:
+      - condition: 修正完了
+        next: implementation_review
+      - condition: 修正不要
+        next: implementation_review
+      - condition: 修正を進行できない
+        next: ABORT

@@ -2,14 +2,14 @@ name: cross-tool-tdd
 description: >
   クロスツール TDD ワークフロー
   （Codex 計画 → Codex/Claude 計画レビュー → Cursor TDD 実装 → Claude simplify → Codex/Claude/CodeRabbit 実装レビュー）
-piece_config:
+workflow_config:
   provider_options:
     codex:
       network_access: true
     opencode:
       network_access: true
-max_movements: 30
-initial_movement: plan
+max_steps: 30
+initial_step: plan
 
 # セクションマップ（カスタムファセットのみ）
 instructions:
@@ -29,7 +29,7 @@ loop_monitors:
     threshold: 3
     judge:
       persona: supervisor
-      instruction_template: |
+      instruction: |
         計画と計画レビューのサイクルが {cycle_count} 回繰り返されました。
 
         計画レポート: {report:plan.md}
@@ -49,7 +49,7 @@ loop_monitors:
     threshold: 2
     judge:
       persona: supervisor
-      instruction_template: |
+      instruction: |
         実装→簡素化→実装レビューのサイクルが {cycle_count} 回繰り返されました。
 
         Codex レビュー: {report:codex-impl-review.md}
@@ -63,7 +63,7 @@ loop_monitors:
         - condition: 非生産的（同じ問題が繰り返される）
           next: ABORT
 
-movements:
+steps:
   # Step 1: Codex で計画
   - name: plan
     edit: false

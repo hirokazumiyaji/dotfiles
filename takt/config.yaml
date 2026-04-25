@@ -1,2 +1,15 @@
 language: ja
 provider: claude
+
+provider_options:
+  codex:
+    network_access: true
+  claude:
+    sandbox:
+      allow_unsandboxed_commands: true
+
+provider_profiles:
+  codex:
+    default_permission_mode: readonly
+  claude:
+    default_permission_mode: readonly

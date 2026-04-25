@@ -1,0 +1,386 @@
+name: multi-ai-tdd
+description: >
+  マルチAI TDD ワークフロー
+  （Codex計画 → 過剰設計+詳細レビュー → TDD実装 → 簡素化 → 包括レビュー → テスト清掃 → 最終検証）
+  Steps 1-6: 深い計画策定（Codex的な深掘り）
+  Steps 7-13: 計画レビュー（過剰設計チェック + 要件詳細レビュー）
+  Step 14: TDD実装（Cursor的な高速実装）
+  Steps 15-18: コードレビュー + 簡素化（重複検出・単純化）
+  Steps 19-21: git staging管理 + コミット
+  Steps 22-24: テスト清掃 + 計画整理
+  Step 25: 最終検証 + ふりかえり
+workflow_config:
+  provider_options:
+    codex:
+      network_access: true
+    opencode:
+      network_access: true
+max_steps: 35
+initial_step: plan
+
+# カスタムファセット（セクションマップ）
+personas:
+  overengineering-reviewer: ../personas/overengineering-reviewer.md
+instructions:
+  review-overengineering: ../instructions/review-overengineering.md
+  implement-tdd: ../instructions/implement-tdd.md
+  simplify: ../instructions/simplify.md
+  review-coderabbit: ../instructions/review-coderabbit.md
+  review-plan: ../instructions/review-plan.md
+  code-fix: ../instructions/code-fix.md
+  cleanup: ../instructions/cleanup.md
+report_formats:
+  plan-review: ../output-contracts/plan-review.md
+  overengineering-review: ../output-contracts/overengineering-review.md
+  simplify-report: ../output-contracts/simplify-report.md
+  coderabbit-review: ../output-contracts/coderabbit-review.md
+  cleanup-report: ../output-contracts/cleanup-report.md
+
+loop_monitors:
+  # 計画レビュー ↔ 計画修正 ループ（Steps 7-13）
+  - cycle:
+      - plan_review
+      - plan
+    threshold: 3
+    judge:
+      persona: supervisor
+      instruction: |
+        計画レビューと修正のサイクルが {cycle_count} 回繰り返されました。
+
+        計画レポート: {report:plan.md}
+        過剰設計レビュー: {report:overengineering-review.md}
+        詳細レビュー: {report:detail-plan-review.md}
+
+        改善が進んでいるか、同じ指摘の繰り返しかを判断してください。
+      rules:
+        - condition: 健全（計画が改善されている）
+          next: plan_review
+        - condition: 非生産的（同じ指摘が繰り返される）
+          next: ABORT
+
+  # コードレビュー ↔ 修正 ループ（Steps 15-20）
+  - cycle:
+      - code_review
+      - code_fix
+    threshold: 3
+    judge:
+      persona: supervisor
+      instruction: |
+        コードレビューと修正のサイクルが {cycle_count} 回繰り返されました。
+
+        深層レビュー: {report:deep-code-review.md}
+        CodeRabbit レビュー: {report:coderabbit-review.md}
+
+        実装が改善されているか判断してください。
+      rules:
+        - condition: 健全（改善されている）
+          next: code_review
+        - condition: 非生産的（同じ問題が繰り返される）
+          next: cleanup
+
+steps:
+  # ═══════════════════════════════════════════
+  # Phase 1: 計画（Steps 1-6）
+  # ═══════════════════════════════════════════
+  - name: plan
+    edit: false
+    persona: planner
+    knowledge: architecture
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Bash
+          - WebSearch
+          - WebFetch
+    instruction: plan
+    output_contracts:
+      report:
+        - name: plan.md
+          format: plan
+    rules:
+      - condition: 要件が明確で実装可能
+        next: plan_review
+      - condition: ユーザーが質問をしている（実装タスクではない）
+        next: COMPLETE
+      - condition: 要件が不明確、情報不足
+        next: ABORT
+        appendix: |
+          確認事項:
+          - {質問1}
+          - {質問2}
+
+  # ═══════════════════════════════════════════
+  # Phase 2: 計画レビュー（Steps 7-13）
+  # 並列: 過剰設計チェック（Claude的） + 詳細レビュー（Cursor的）
+  # ═══════════════════════════════════════════
+  - name: plan_review
+    parallel:
+      - name: overengineering-review
+        edit: false
+        persona: overengineering-reviewer
+        policy: review
+        knowledge: architecture
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-overengineering
+        output_contracts:
+          report:
+            - name: overengineering-review.md
+              format: overengineering-review
+        rules:
+          - condition: approved
+          - condition: needs_revision
+      - name: detail-plan-review
+        edit: false
+        persona: architecture-reviewer
+        policy: review
+        knowledge: architecture
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-plan
+        output_contracts:
+          report:
+            - name: detail-plan-review.md
+              format: plan-review
+        rules:
+          - condition: approved
+          - condition: needs_revision
+    rules:
+      - condition: all("approved")
+        next: implement
+      - condition: any("needs_revision")
+        next: plan
+
+  # ═══════════════════════════════════════════
+  # Phase 3: TDD 実装（Step 14）
+  # ═══════════════════════════════════════════
+  - name: implement
+    edit: true
+    persona: coder
+    policy:
+      - coding
+      - testing
+    session: refresh
+    knowledge:
+      - architecture
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+          - WebSearch
+          - WebFetch
+    required_permission_mode: edit
+    instruction: implement-tdd
+    output_contracts:
+      report:
+        - name: coder-scope.md
+          format: coder-scope
+        - name: coder-decisions.md
+          format: coder-decisions
+    rules:
+      - condition: TDD 実装完了（Red→Green→Refactor サイクル完了）
+        next: simplify
+      - condition: 実装を進行できない
+        next: ABORT
+      - condition: ユーザー入力が必要
+        next: implement
+        requires_user_input: true
+        interactive_only: true
+
+  # ═══════════════════════════════════════════
+  # Phase 4: 簡素化（Step 17 - Claude的な重複検出・単純化）
+  # ═══════════════════════════════════════════
+  - name: simplify
+    edit: true
+    persona: coder
+    policy:
+      - coding
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+    required_permission_mode: edit
+    instruction: simplify
+    output_contracts:
+      report:
+        - name: simplify-report.md
+          format: simplify-report
+    rules:
+      - condition: 簡素化完了（改善あり）
+        next: code_review
+      - condition: 変更不要（コードは既に十分簡素）
+        next: code_review
+
+  # ═══════════════════════════════════════════
+  # Phase 5: コードレビュー（Steps 15-16）
+  # 並列: 深層レビュー（Codex的） + CodeRabbit包括レビュー
+  # ═══════════════════════════════════════════
+  - name: code_review
+    parallel:
+      - name: deep-review
+        edit: false
+        persona: architecture-reviewer
+        policy: review
+        knowledge: architecture
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-arch
+        output_contracts:
+          report:
+            - name: deep-code-review.md
+              format: architecture-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+      - name: coderabbit-review
+        edit: false
+        persona: architecture-reviewer
+        policy: review
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-coderabbit
+        output_contracts:
+          report:
+            - name: coderabbit-review.md
+              format: coderabbit-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+    rules:
+      - condition: all("approved")
+        next: cleanup
+      - condition: any("needs_fix")
+        next: code_fix
+
+  # ═══════════════════════════════════════════
+  # Phase 6: コード修正（Steps 18-20 - git staging 管理付き）
+  # ═══════════════════════════════════════════
+  - name: code_fix
+    edit: true
+    persona: coder
+    policy:
+      - coding
+      - testing
+    knowledge:
+      - architecture
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+          - WebSearch
+          - WebFetch
+    required_permission_mode: edit
+    instruction: code-fix
+    pass_previous_response: false
+    rules:
+      - condition: 修正完了
+        next: code_review
+      - condition: 修正不要（指摘対象の確認済み）
+        next: code_review
+      - condition: 修正を進行できない
+        next: cleanup
+
+  # ═══════════════════════════════════════════
+  # Phase 7: テスト清掃 + 計画整理（Steps 22-24）
+  # ═══════════════════════════════════════════
+  - name: cleanup
+    edit: true
+    persona: coder
+    policy:
+      - coding
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+    required_permission_mode: edit
+    instruction: cleanup
+    output_contracts:
+      report:
+        - name: cleanup-report.md
+          format: cleanup-report
+    rules:
+      - condition: 清掃完了
+        next: supervise
+      - condition: 清掃不要
+        next: supervise
+
+  # ═══════════════════════════════════════════
+  # Phase 8: 最終検証（Steps 21, 25）
+  # ═══════════════════════════════════════════
+  - name: supervise
+    edit: false
+    persona: supervisor
+    policy: review
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Bash
+          - WebSearch
+          - WebFetch
+    instruction: supervise
+    output_contracts:
+      report:
+        - name: supervisor-validation.md
+          format: supervisor-validation
+        - name: summary.md
+          format: summary
+          use_judge: false
+    rules:
+      - condition: すべて問題なし
+        next: COMPLETE
+      - condition: 要求未達成、テスト失敗、ビルドエラー
+        next: code_fix
