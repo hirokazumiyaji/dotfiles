@@ -8,6 +8,14 @@
 
 - Intentional Documentation: Do not write explanatory comments. Only use comments to document the intent ("why," not "how").
 
+# Testing Principles
+
+  - Tests should mirror production dependency injection. If production code expects a non-nil dependency, test setup must provide a real, fake, mock, or in-memory implementation instead of passing nil.
+
+  - Do not change production code to tolerate nil dependencies only to satisfy tests. Add nil handling only when nil is a valid runtime state or part of the API contract.
+
+  - Prefer simple in-memory implementations for infrastructure dependencies in tests when behavior matters but external services are not the subject of the test.
+
 # Tooling & Environment
 
 - **GitHub Access**: Always use the `gh` CLI (e.g., `gh pr view`, `gh issue view`) instead of web fetching for PRs, issues, or repositories.
