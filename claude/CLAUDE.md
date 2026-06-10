@@ -20,6 +20,8 @@
 
 - **GitHub Access**: Always use the `gh` CLI (e.g., `gh pr view`, `gh issue view`) instead of web fetching for PRs, issues, or repositories.
 
+- **Secrets Handling**: Do not inspect `.env`, `.env.*`, `.envrc`, credential files, API keys, or other obviously sensitive configuration files unless the user explicitly authorizes it in the current conversation.
+
 - **High-Performance Search (Mandatory)**:
   - **File Discovery**: ALWAYS use `fd` instead of `find`. 
     - It is faster, colorized, and respects `.gitignore` by default.
