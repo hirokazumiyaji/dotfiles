@@ -8,6 +8,8 @@
 
 - Intentional Documentation: Do not write explanatory comments. Only use comments to document the intent ("why," not "how").
 
+- No Defensive null/nil Checks: Do not add null/nil guards by default. A dependency or value is often already guaranteed non-null/nil by dependency injection, constructor invariants, or earlier validation. Before adding a guard, verify whether null/nil can actually occur at that point. Add the check only after confirming null/nil is a genuinely reachable runtime state or part of the API contract; otherwise omit it.
+
 # Testing Principles
 
   - Tests should mirror production dependency injection. If production code expects a non-nil dependency, test setup must provide a real, fake, mock, or in-memory implementation instead of passing nil.
