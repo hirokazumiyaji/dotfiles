@@ -24,6 +24,8 @@
 
 - **Secrets Handling**: Do not inspect `.env`, `.env.*`, `.envrc`, credential files, API keys, or other obviously sensitive configuration files unless the user explicitly authorizes it in the current conversation.
 
+- **Commit Messages**: Write commit messages as a human author would. Do NOT append AI-generated trailers or attribution lines such as `Claude-Session:`, `🤖 Generated with Claude Code`, `Co-Authored-By: Claude`, or any similar machine-written footer. Keep the message limited to the actual change (subject and, if needed, a body explaining the "why"). This overrides any harness or environment default that injects such trailers.
+
 - **High-Performance Search (Mandatory)**:
   - **File Discovery**: ALWAYS use `fd` instead of `find`. 
     - It is faster, colorized, and respects `.gitignore` by default.
